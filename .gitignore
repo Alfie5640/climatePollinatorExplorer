@@ -1,0 +1,9 @@
+data_cache/
+*.nc
+*.grib
+*.tif
+.env
+__pycache__/
+node_modules/
+.next/
+.venv/
