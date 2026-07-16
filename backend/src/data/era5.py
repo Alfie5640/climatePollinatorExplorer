@@ -1,7 +1,7 @@
-
 import earthkit.data as ekd
+import xarray as xr
 
-def load_era5(year, month, days, area):
+def load_era5(year: str, month: str, days: list[str], area: list[float]) -> xr.Dataset:
     temp_data = ekd.from_source(
         "cds",
         "reanalysis-era5-single-levels",
