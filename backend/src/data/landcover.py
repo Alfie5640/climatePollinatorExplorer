@@ -1,25 +1,32 @@
-from src.data.grid import create_lat_lon_grid
-import xarray as xr
-import numpy as np
 import ee
+import numpy as np
+import xarray as xr
+import requests
+import rioxarray
 
 def load_landcover(area: list[float]) -> tuple[xr.DataArray, np.ndarray]:
-
-    # Convert [lat_min, lon_min, lat_max, lon_max] to EE [lon_min, lat_min, lon_max, lat_max]
-    ee_area = [area[1], area[0], area[3], area[2]]
-
+    ee_area = [area[1], area[2], area[3], area[0]]  # [lon_min, lat_min, lon_max, lat_max]
     region = ee.Geometry.Rectangle(ee_area)
+
     landcover = ee.ImageCollection("ESA/WorldCover/v200").first().clip(region)
 
-    sample = landcover.reproject(crs="EPSG:4326", scale=500).sampleRectangle(region=region, defaultValue=0)
-    lc_array = sample.get("Map").getInfo()
-    lc_np = np.array(lc_array)
+    url = landcover.getDownloadURL({
+        "region": region,
+        "scale": 1000,
+        "crs": "EPSG:4326",
+        "format": "GEO_TIFF",
+    })
 
-    lats, lons = create_lat_lon_grid(area, lc_np.shape)
+    response = requests.get(url)
+    response.raise_for_status()
 
-    print(lc_np.shape)
-    print(np.unique(lc_np))
+    tif_path = "../data_cache/tmp/landcover_download.tif"
+    with open(tif_path, "wb") as f:
+        f.write(response.content)
 
-    lc_da = xr.DataArray(lc_np, dims=["lat", "lon"], coords={"lat": lats, "lon": lons}, name="landcover")
+    lc_da = rioxarray.open_rasterio(tif_path).squeeze()
+    lc_da = lc_da.rename({"x": "lon", "y": "lat"})
+    lc_da.name = "landcover"
+    lc_np = lc_da.values
 
     return lc_da, lc_np

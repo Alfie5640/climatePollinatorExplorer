@@ -1,10 +1,13 @@
 import ee
 import numpy as np
 import xarray as xr
+import requests
+import rioxarray
 from src.data.grid import create_lat_lon_grid
 
 def load_ndvi(start_date: str, end_date: str, area: list[float]) -> tuple[xr.DataArray, np.ndarray]:
-    region = ee.Geometry.Rectangle(area)
+    ee_area = [area[1], area[2], area[3], area[0]]  # [lon_min, lat_min, lon_max, lat_max]
+    region = ee.Geometry.Rectangle(ee_area)
 
     ndvi_collection = (
         ee.ImageCollection("MODIS/061/MOD13Q1")
@@ -13,18 +16,25 @@ def load_ndvi(start_date: str, end_date: str, area: list[float]) -> tuple[xr.Dat
         .select("NDVI")
     )
 
-    ndvi_image = (
-        ndvi_collection.mean()
-        .clip(region)
-        .reproject(crs="EPSG:4326", scale=500)
-    )
+    ndvi_image = ndvi_collection.mean().clip(region)
 
-    sample = ndvi_image.sampleRectangle(region=region, defaultValue=0)
-    ndvi_array = sample.get("NDVI").getInfo()
-    ndvi_np = np.array(ndvi_array) / 10000
+    url = ndvi_image.getDownloadURL({
+        "region": region,
+        "scale": 1000,
+        "crs": "EPSG:4326",
+        "format": "GEO_TIFF",
+    })
 
-    lats, lons = create_lat_lon_grid(area, ndvi_np.shape)
+    response = requests.get(url)
+    response.raise_for_status()
 
-    ndvi_da = xr.DataArray(ndvi_np, dims=["lat", "lon"], coords={"lat": lats, "lon": lons}, name="ndvi")
+    tif_path = "../data_cache/tmp/ndvi_download.tif"
+    with open(tif_path, "wb") as f:
+        f.write(response.content)
+
+    ndvi_da = rioxarray.open_rasterio(tif_path).squeeze() / 10000
+    ndvi_da = ndvi_da.rename({"x": "lon", "y": "lat"})
+    ndvi_da.name = "ndvi"
+    ndvi_np = ndvi_da.values
 
     return ndvi_da, ndvi_np
